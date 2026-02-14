@@ -18,7 +18,7 @@ Parameters:
   MyIP:
     Description: IPAddless(123.456.xxx.xxx/32)
     Type: String
-    AllowedPattern: ".*\/32$"
+    AllowedPattern: '.*\/32$'
     ConstraintDescription: CIDR形式で、末尾を/32にして下さい（例： 123.456.789.10/32）
 
   
