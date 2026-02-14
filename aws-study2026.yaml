@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description:  講座24の課題
+
+Parameters:
+  KeyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+
+  DBMasterusername:
+    Description: DBmasterusername
+    Type: String
+  
+  DBMasterPassword:
+    Description: DBmasterPassword
+    NoEcho: true
+    Type: String
+    MinLength: 8
+
+  MyIP:
+    Description: IPAddless(123.456.xxx.xxx/32)
+    Type: String
+    AllowedPattern: '.*\/32$'
+    ConstraintDescription: CIDR形式で、末尾を/32にして下さい（例： 123.456.789.10/32）
+
+  
+Resources:  #Resourcesは必須
+  
+  #-------------------------
+  #VPC
+  #-------------------------
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      InstanceTenancy: default
+      Tags: 
+      - Key: Name
+        Value: aws-study-VPC
+
+  #-------------------------
+  #Subnet
+  #-------------------------
+  
+  #public
+
+  Publicsubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ''] #AZは再現性の意味でも直接は書かない
+      CidrBlock: 10.0.0.0/20 #同上の意味でも指定はダメだが講座通りという事で割愛。
+      MapPublicIpOnLaunch: true
+      Tags: 
+      - Key: Name
+        Value: aws-study-publicsubnet1a
+      VpcId: !Ref VPC
+
+  Publicsubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ''] 
+      CidrBlock: 10.0.16.0/20 
+      MapPublicIpOnLaunch: true
+      Tags: 
+      - Key: Name
+        Value: aws-study-publicsubnet1c
+      VpcId: !Ref VPC
+
+  #private
+
+  PrivateSubnet1a:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [0, !GetAZs ''] 
+      CidrBlock: 10.0.128.0/20 
+      MapPublicIpOnLaunch: false
+      Tags: 
+      - Key: Name
+        Value: aws-study-publicsubnet1a
+      VpcId: !Ref VPC
+
+  PrivateSubnet1c:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Select [1, !GetAZs ''] 
+      CidrBlock: 10.0.144.0/20 
+      MapPublicIpOnLaunch: false
+      Tags: 
+      - Key: Name
+        Value: aws-study-publicsubnet1c
+      VpcId: !Ref VPC
+
+  #DB用subnetgroup
+  rdsDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: rdsDBSubnetGroup
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - !Ref PrivateSubnet1a
+        - !Ref PrivateSubnet1c
+      Tags:
+        - Key: Name
+          Value: RDSDBSubnetGroup
+  #-------------------------
+  #IGW
+  #-------------------------
+  IGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Internetgateway
+
+  AttachGateway: #IGWをVPCに関連付けるために必要
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref IGW
+
+  #-------------------------
+  #Routetable
+  #-------------------------
+  RouteTablepublicsubnet: #パブリックサブネット用
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: RouteTable publicsubnet
+
+  routeTableAssociation1a: #ルートテーブルとサブネットの紐づけ
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Publicsubnet1a
+      RouteTableId: !Ref RouteTablepublicsubnet
+  
+  routeTableAssociation1c: 
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Publicsubnet1c
+      RouteTableId: !Ref RouteTablepublicsubnet
+
+  PublicRoute: #パブリックルートの設定
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway #先にIGWとVPCを紐づける事を優先。
+    Properties:
+      RouteTableId: !Ref RouteTablepublicsubnet
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+
+  #-------------------------
+  #security-group
+  #-------------------------
+
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: aws-study-ec2-sg
+      GroupDescription: publicsubnet-1a
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: !Ref MyIP
+          FromPort: 22
+          ToPort: 22
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort: 443
+      Tags:
+        - Key: Name
+          Value: Security-group
+
+  #DB用security-group
+
+  RDSDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VPC
+      GroupDescription: RDSSecurityGroup
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref SecurityGroup
+      Tags:
+        - Key: Name
+          Value: RDS-SG
+
+  
+ 
+  #-------------------------
+  #EC2
+  #-------------------------
+  myEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      KeyName: !Ref KeyName
+      ImageId: ami-0599b6e53ca798bb2
+      InstanceType: t3.micro
+      SubnetId: !Ref Publicsubnet1a
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      Tags:
+        - Key: key
+          Value: EC2-instance
+
+  #-------------------------
+  #RDS
+  #-------------------------
+
+  RDSDBInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: 20
+      DBInstanceClass: db.t4g.micro
+      AutoMinorVersionUpgrade: true
+      AvailabilityZone: !Select [0, !GetAZs '']
+      BackupRetentionPeriod: 1
+      DBName: awsstudy
+      DBParameterGroupName: default.mysql8.0
+      DBSubnetGroupName: !Ref rdsDBSubnetGroup
+      Engine: mysql
+      EngineVersion: 8.0.43
+      MasterUsername: !Ref DBMasterusername
+      MasterUserPassword: !Ref DBMasterPassword
+      StorageEncrypted: true
+      StorageType: gp2
+      VPCSecurityGroups:
+        - !Ref RDSDBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: RDS
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+  
