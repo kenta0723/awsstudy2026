@@ -172,7 +172,7 @@ Resources:  #Resourcesは必須
         - IpProtocol: tcp
           FromPort: 8080
           ToPort: 8080
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
       Tags:
         - Key: Name
           Value: Security-group
@@ -268,21 +268,18 @@ Resources:  #Resourcesは必須
     Properties:
       HealthCheckIntervalSeconds: 30
       HealthCheckPath: /
-      HealthCheckPort: traffic-port
+      HealthCheckPort: 8080
       HealthCheckProtocol: HTTP
       HealthCheckTimeoutSeconds: 5
       HealthyThresholdCount: 5
       Matcher: 
         HttpCode: '200,300,301'
       Name: aws-study-tg
-      Port: 80
+      Port: 8080
       Protocol: HTTP
       ProtocolVersion: HTTP1
       Targets: 
         - Id: !Ref myEC2Instance
-          Port: 8080
-        - Id: !Ref myEC2Instance
-          Port: 80
       TargetType: instance
       UnhealthyThresholdCount: 2
       VpcId: !Ref VPC
