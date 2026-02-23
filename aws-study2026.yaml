@@ -76,7 +76,7 @@ Resources:  #Resourcesは必須
       MapPublicIpOnLaunch: false
       Tags: 
       - Key: Name
-        Value: aws-study-publicsubnet1a
+        Value: aws-study-privatesubnet1a
       VpcId: !Ref VPC
 
   PrivateSubnet1c:
@@ -87,7 +87,8 @@ Resources:  #Resourcesは必須
       MapPublicIpOnLaunch: false
       Tags: 
       - Key: Name
-        Value: aws-study-publicsubnet1c
+        Value: aws-study-privatesubnet1c
+
       VpcId: !Ref VPC
 
   #DB用subnetgroup
@@ -165,13 +166,14 @@ Resources:  #Resourcesは必須
           FromPort: 22
           ToPort: 22
         - IpProtocol: tcp
-          CidrIp: 0.0.0.0/0
           FromPort: 80
           ToPort: 80
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
+          #ELBSecurityGroup→EC2に来た通信を参照する場合はcidrIpは不要
         - IpProtocol: tcp
-          CidrIp: 0.0.0.0/0
-          FromPort: 443
-          ToPort: 443
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ELBSecurityGroup
       Tags:
         - Key: Name
           Value: Security-group
@@ -192,8 +194,29 @@ Resources:  #Resourcesは必須
         - Key: Name
           Value: RDS-SG
 
-  
+
+   #ELB用security-group
  
+  ELBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ELBsecurityGroup
+      GroupDescription: ELBSecurityGroup
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 80
+          ToPort: 80
+        - IpProtocol: tcp
+          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort: 443
+      Tags:
+        - Key: Name
+          Value: ELB-Securitygroup
+    
+
   #-------------------------
   #EC2
   #-------------------------
@@ -238,4 +261,66 @@ Resources:  #Resourcesは必須
           Value: RDS
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
-  
+
+    
+  #-------------------------
+  #ELB-TargetGroup
+  #-------------------------
+
+  LoadBalancerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /
+      HealthCheckPort: 8080
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 5
+      Matcher: 
+        HttpCode: '200,300,301'
+      Name: aws-study-tg
+      Port: 8080
+      Protocol: HTTP
+      ProtocolVersion: HTTP1
+      Targets: 
+        - Id: !Ref myEC2Instance
+      TargetType: instance
+      UnhealthyThresholdCount: 2
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: Name
+          Value: ECB-TargetGroup
+
+
+  #-------------------------
+  #ELB
+  #-------------------------
+
+  MyELBname:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      IpAddressType: ipv4
+      Name: aws-study-elb
+      Scheme: internet-facing
+      SecurityGroups: 
+         - !Ref ELBSecurityGroup
+      Subnets: 
+        - !Ref Publicsubnet1a
+        - !Ref Publicsubnet1c
+      Tags: 
+        - Key: Name
+          Value: ELB
+
+  #-------ListenerRule-------
+
+  ELBListeners:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions: 
+        - TargetGroupArn: !Ref LoadBalancerTargetGroup
+          Type: forward
+      LoadBalancerArn: !Ref MyELBname
+      # ARN = Amazon Resource Name=リソース名
+      Port: 80
+      Protocol: HTTP
+
