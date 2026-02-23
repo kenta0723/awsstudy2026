@@ -88,6 +88,7 @@ Resources:  #Resourcesは必須
       Tags: 
       - Key: Name
         Value: aws-study-privatesubnet1c
+
       VpcId: !Ref VPC
 
   #DB用subnetgroup
@@ -193,6 +194,7 @@ Resources:  #Resourcesは必須
         - Key: Name
           Value: RDS-SG
 
+
    #ELB用security-group
  
   ELBSecurityGroup:
@@ -214,6 +216,7 @@ Resources:  #Resourcesは必須
         - Key: Name
           Value: ELB-Securitygroup
     
+
   #-------------------------
   #EC2
   #-------------------------
@@ -258,6 +261,7 @@ Resources:  #Resourcesは必須
           Value: RDS
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
+
     
   #-------------------------
   #ELB-TargetGroup
@@ -319,3 +323,4 @@ Resources:  #Resourcesは必須
       # ARN = Amazon Resource Name=リソース名
       Port: 80
       Protocol: HTTP
+
