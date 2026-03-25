@@ -21,6 +21,10 @@ Parameters:
     AllowedPattern: '.*\/32$'
     ConstraintDescription: CIDR形式で、末尾を/32にして下さい（例： 123.456.789.10/32）
 
+  MyEmailAddless:
+    Description: Myemailaddless(○○○○@○○○）
+    Type: String
+
   
 Resources:  #Resourcesは必須
   
@@ -160,6 +164,7 @@ Resources:  #Resourcesは必須
       GroupName: aws-study-ec2-sg
       GroupDescription: publicsubnet-1a
       VpcId: !Ref VPC
+
       SecurityGroupIngress:
         - IpProtocol: tcp
           CidrIp: !Ref MyIP
@@ -174,6 +179,7 @@ Resources:  #Resourcesは必須
           FromPort: 8080
           ToPort: 8080
           SourceSecurityGroupId: !Ref ELBSecurityGroup
+          
       Tags:
         - Key: Name
           Value: Security-group
@@ -185,11 +191,13 @@ Resources:  #Resourcesは必須
     Properties:
       VpcId: !Ref VPC
       GroupDescription: RDSSecurityGroup
+
       SecurityGroupIngress:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           SourceSecurityGroupId: !Ref SecurityGroup
+
       Tags:
         - Key: Name
           Value: RDS-SG
@@ -203,6 +211,7 @@ Resources:  #Resourcesは必須
       GroupName: ELBsecurityGroup
       GroupDescription: ELBSecurityGroup
       VpcId: !Ref VPC
+
       SecurityGroupIngress:
         - IpProtocol: tcp
           CidrIp: 0.0.0.0/0
@@ -212,6 +221,7 @@ Resources:  #Resourcesは必須
           CidrIp: 0.0.0.0/0
           FromPort: 443
           ToPort: 443
+
       Tags:
         - Key: Name
           Value: ELB-Securitygroup
@@ -220,7 +230,7 @@ Resources:  #Resourcesは必須
   #-------------------------
   #EC2
   #-------------------------
-  myEC2Instance:
+  EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
       KeyName: !Ref KeyName
@@ -230,7 +240,7 @@ Resources:  #Resourcesは必須
       SecurityGroupIds:
         - !Ref SecurityGroup
       Tags:
-        - Key: key
+        - Key: Name
           Value: EC2-instance
 
   #-------------------------
@@ -256,9 +266,11 @@ Resources:  #Resourcesは必須
       StorageType: gp2
       VPCSecurityGroups:
         - !Ref RDSDBSecurityGroup
+
       Tags:
         - Key: Name
           Value: RDS
+
     DeletionPolicy: Snapshot
     UpdateReplacePolicy: Snapshot
 
@@ -270,6 +282,9 @@ Resources:  #Resourcesは必須
   LoadBalancerTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
+      Name: aws-study-tg
+      VpcId: !Ref VPC
+
       HealthCheckIntervalSeconds: 30
       HealthCheckPath: /
       HealthCheckPort: 8080
@@ -278,25 +293,26 @@ Resources:  #Resourcesは必須
       HealthyThresholdCount: 5
       Matcher: 
         HttpCode: '200,300,301'
-      Name: aws-study-tg
+
       Port: 8080
       Protocol: HTTP
       ProtocolVersion: HTTP1
       Targets: 
-        - Id: !Ref myEC2Instance
+        - Id: !Ref EC2Instance
+
       TargetType: instance
       UnhealthyThresholdCount: 2
-      VpcId: !Ref VPC
+
       Tags: 
         - Key: Name
           Value: ECB-TargetGroup
 
 
   #-------------------------
-  #ELB
+  #ALB
   #-------------------------
 
-  MyELBname:
+  ALB:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
       IpAddressType: ipv4
@@ -319,8 +335,122 @@ Resources:  #Resourcesは必須
       DefaultActions: 
         - TargetGroupArn: !Ref LoadBalancerTargetGroup
           Type: forward
-      LoadBalancerArn: !Ref MyELBname
+      LoadBalancerArn: !Ref ALB
       # ARN = Amazon Resource Name=リソース名
       Port: 80
       Protocol: HTTP
 
+
+  #-------Cloudwatch----------
+
+  CloudWatchAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+  #--- N 回の評価のうち、「しきい値超過」が M 回存在したらアラートにする ---
+  #---NがEvaluationPeriods　MがDatapointsToAlarm---
+      EvaluationPeriods: 1
+      DatapointsToAlarm: 1
+
+      Period: 300
+      Statistic: Average
+      Threshold: 0.1
+
+      AlarmDescription: "EC2のアラーム使用率が5分間で0.1を超えたらトリガー"
+      AlarmName: EC2CPUUtilization
+      Dimensions: 
+        - Name: InstanceId
+          Value: !Ref EC2Instance
+          
+      ActionsEnabled: true
+      AlarmActions:
+        - !Ref AmazonsnsTopic
+
+  #-------Amazon SNSTopic-------
+
+  AmazonsnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: aws-study-topic  
+  #---Eメールはスタック作成時に手動で入力することで確実に通知が来るように設定。
+      Subscription: 
+        - Protocol: email 
+          Endpoint: !Ref MyEmailAddless
+
+
+  #------WAF-------
+
+  WebACL:
+    Type: AWS::WAFv2::WebACL   
+    Properties:    
+      Name: aws-study-acl
+      Scope: REGIONAL
+      DefaultAction: # DefaultAction には「Actionオブジェクト」を入れる仕様なので「｛｝」を使用　※DefaultAction:Allow だと文字列としての認識なのでNG 
+        Allow: {}
+      VisibilityConfig: 
+         CloudWatchMetricsEnabled: true
+         MetricName: aws-study-waf
+         SampledRequestsEnabled: true   
+      Rules: 
+       - Name: AWS-AWSManagedRulesCommonRuleSet
+         Priority: 1
+         Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+         OverrideAction:
+            None: {}
+         VisibilityConfig: 
+            CloudWatchMetricsEnabled: true
+            MetricName: AWSManagedRulesCommonRuleSet
+            SampledRequestsEnabled: true
+
+  #------WebACLAssociation------ #WAFをどこに連携するのか（今回はALB）を設定する。
+  WebACLAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !GetAtt  ALB.LoadBalancerArn #Arn属性を求められているので！GetAtt ※リソース名.属性名→ALB.LoadBalancerArn
+      WebACLArn: !GetAtt  WebACL.Arn
+
+  #------CloudWatchLogsGroup------ #WAFのトラフィックログの出力元を設定
+  CloudWatchLogsGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: aws-waf-logs-study #WAFログのcloudwatchlogsの場合はaws-[waf-log]-にしないといけない。
+      Tags:
+        - Key: Name
+          Value: CloudwatchLogsGroup
+
+  #------LoggingConfiguration------- #WAFのトラフィックログの出力先を設定
+  WAFLoggingConfiguration:
+    Type: AWS::WAFv2::LoggingConfiguration
+    Properties:
+      ResourceArn: !GetAtt  WebACL.Arn #ログを出す方
+      LogDestinationConfigs: #ログの保存先
+        - !GetAtt CloudWatchLogsGroup.Arn
+
+
+  WAFLogsResourcePolicy:
+    Type: AWS::Logs::ResourcePolicy
+    Properties:
+      PolicyName: WAFLogsResourcePolicy
+      PolicyDocument: | # |←これは複数行文字列（横にずらずら並べなくても縦に書いても文字列として認識してもらえる
+        {
+          "Version": "2012-10-17",
+          "Statement": [   
+            {
+              "Sid": "AWSWAFLogsToCloudWatch",
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "waf.amazonaws.com"
+              },
+              "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+              ],
+             "Resource": "arn:aws:logs:*:*:log-group:aws-waf-logs-*" 
+            }
+          ] 
+        }
